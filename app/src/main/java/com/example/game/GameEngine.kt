@@ -281,7 +281,7 @@ class GameEngine(
 
     // Give the player an initial velocity kick in the swipe direction
     val kickDirection = if (swipeDistanceY > 0) 1f else -1f
-    playerVelocityY += kickDirection * speed * 0.4f
+    playerVelocityY += kickDirection * speed * 0.5f
 
     toggleLane(normalizedBoost)
   }
@@ -291,7 +291,7 @@ class GameEngine(
     gestureBoost = boost
     val targetY = if (playerTargetLane == Lane.TOP) topRailY else bottomRailY
     val dir = if (targetY > playerY) 1f else -1f
-    playerVelocityY = dir * 1400f * boost.coerceIn(0.9f, 2.2f)
+    playerVelocityY = dir * 2400f * boost.coerceIn(1.0f, 2.8f)
 
     audio?.playPhaseShift(playerTargetLane == Lane.TOP)
     haptics?.pulseShift()
@@ -391,10 +391,10 @@ class GameEngine(
     // Check milestones (500, 1000, 2500, 5000, 7500, 10000)
     checkMilestones(scoreInt)
 
-    // Smoothly interpolate player Y to target rail with high-velocity responsive spring
+    // Smoothly interpolate player Y to target rail with ultra-responsive spring
     val targetY = if (playerTargetLane == Lane.TOP) topRailY else bottomRailY
-    val springStiffness = 42f * gestureBoost.coerceIn(0.9f, 2.5f)
-    val springDamping = 13.5f * gestureBoost.coerceIn(0.9f, 1.8f)
+    val springStiffness = 80f * gestureBoost.coerceIn(1.0f, 2.8f)
+    val springDamping = 19.5f * gestureBoost.coerceIn(1.0f, 2.0f)
     val displacement = targetY - playerY
     val springForce = displacement * springStiffness
     val dampingForce = playerVelocityY * springDamping
@@ -402,7 +402,7 @@ class GameEngine(
     playerY += playerVelocityY * gameDt
 
     // Decay gesture boost back to neutral
-    gestureBoost = (gestureBoost + (1.0f - gestureBoost) * 4f * gameDt).coerceIn(0.5f, 2.5f)
+    gestureBoost = (gestureBoost + (1.0f - gestureBoost) * 5f * gameDt).coerceIn(0.5f, 2.8f)
 
     // Ghost: record frame every 3 ticks
     runElapsedTime += gameDt
