@@ -35,8 +35,7 @@ class GreetingScreenshotTest {
           onToggleSound = {},
           onToggleMusic = {},
           onToggleHaptics = {},
-          onShowLeaderboard = {},
-          onStart = {}
+          onShowLeaderboard = {}
         )
       }
     }

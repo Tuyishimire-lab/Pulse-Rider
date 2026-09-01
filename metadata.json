@@ -2,5 +2,7 @@
   "name": "Pulse Rider",
   "description": "Hypnotic one-tap cyberpunk neon runner. Phase-shift between energy rails, dodge barriers, and trigger slow-mo near-misses.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

@@ -1,5 +1,11 @@
 package com.example.game
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import com.example.audio.CyberSynthAudio
 import com.example.audio.HapticFeedbackHelper
@@ -40,9 +46,9 @@ class GameEngine(
   private var gestureBoost: Float = 1.0f
 
   // Active Power-ups
-  var hasShield: Boolean = false
-  var slowMoTimer: Float = 0f
-  var scoreSurgeTimer: Float = 0f
+  var hasShield: Boolean by mutableStateOf(false)
+  var slowMoTimer: Float by mutableFloatStateOf(0f)
+  var scoreSurgeTimer: Float by mutableFloatStateOf(0f)
 
   // Trails and FX
   val playerTrail = mutableListOf<TrailPoint>()
@@ -52,13 +58,13 @@ class GameEngine(
   val powerUps = mutableListOf<PowerUp>()
 
   // Game Progress
-  var state: GameScreenState = GameScreenState.ATTRACT
-  var score: Double = 0.0
-  var distanceTraveled: Double = 0.0
-  var currentMultiplier: Int = 1
-  var maxStreak: Int = 1
-  var nearMissCount: Int = 0
-  var currentPhase: GamePhase = GamePhases.first()
+  var state: GameScreenState by mutableStateOf(GameScreenState.ATTRACT)
+  var score: Double by mutableDoubleStateOf(0.0)
+  var distanceTraveled: Double by mutableDoubleStateOf(0.0)
+  var currentMultiplier: Int by mutableIntStateOf(1)
+  var maxStreak: Int by mutableIntStateOf(1)
+  var nearMissCount: Int by mutableIntStateOf(0)
+  var currentPhase: GamePhase by mutableStateOf(GamePhases.first())
 
   // Slow-Mo & Juice Timers
   var timeScale: Float = 1.0f
@@ -77,8 +83,8 @@ class GameEngine(
   private var totalObstaclesSpawned: Int = 0
 
   // Milestone Celebration
-  var currentMilestoneText: String? = null
-  var milestoneBannerAlpha: Float = 0f
+  var currentMilestoneText: String? by mutableStateOf(null)
+  var milestoneBannerAlpha: Float by mutableFloatStateOf(0f)
   private val reachedMilestones = mutableSetOf<Int>()
 
   // Game-over restart cooldown (prevents accidental restarts)
