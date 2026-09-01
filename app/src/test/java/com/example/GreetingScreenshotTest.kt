@@ -32,10 +32,15 @@ class GreetingScreenshotTest {
           isMusic = true,
           isHaptics = true,
           pulseScale = 1.0f,
+          dailyChallenge = com.example.game.DailyChallenge.today(),
+          unlockedCount = 2,
+          totalCount = com.example.game.Achievement.entries.size,
           onToggleSound = {},
           onToggleMusic = {},
           onToggleHaptics = {},
-          onShowLeaderboard = {}
+          onShowLeaderboard = {},
+          onShowAchievements = {},
+          onPlayDailyChallenge = {}
         )
       }
     }

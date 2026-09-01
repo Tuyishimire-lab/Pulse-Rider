@@ -289,6 +289,10 @@ class GameEngine(
   private fun toggleLane(boost: Float = 1.0f) {
     playerTargetLane = playerTargetLane.toggle()
     gestureBoost = boost
+    val targetY = if (playerTargetLane == Lane.TOP) topRailY else bottomRailY
+    val dir = if (targetY > playerY) 1f else -1f
+    playerVelocityY = dir * 1400f * boost.coerceIn(0.9f, 2.2f)
+
     audio?.playPhaseShift(playerTargetLane == Lane.TOP)
     haptics?.pulseShift()
 
@@ -387,10 +391,10 @@ class GameEngine(
     // Check milestones (500, 1000, 2500, 5000, 7500, 10000)
     checkMilestones(scoreInt)
 
-    // Smoothly interpolate player Y to target rail with gesture-responsive spring
+    // Smoothly interpolate player Y to target rail with high-velocity responsive spring
     val targetY = if (playerTargetLane == Lane.TOP) topRailY else bottomRailY
-    val springStiffness = 18f * gestureBoost.coerceIn(0.8f, 2.5f)
-    val springDamping = 8.5f * gestureBoost.coerceIn(0.9f, 1.8f)
+    val springStiffness = 42f * gestureBoost.coerceIn(0.9f, 2.5f)
+    val springDamping = 13.5f * gestureBoost.coerceIn(0.9f, 1.8f)
     val displacement = targetY - playerY
     val springForce = displacement * springStiffness
     val dampingForce = playerVelocityY * springDamping

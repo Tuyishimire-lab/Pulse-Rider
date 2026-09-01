@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,9 +37,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -318,8 +323,8 @@ fun PulseRiderGameScreen(
       }
     }
 
-    // --- HUD OVERLAY (WHEN PLAYING) ---
-    if (engine.state == GameScreenState.PLAYING) {
+    // --- HUD OVERLAY (WHEN PLAYING OR PAUSED) ---
+    if (engine.state == GameScreenState.PLAYING || engine.state == GameScreenState.PAUSED) {
       InGameHud(
         score = engine.score.toInt(),
         multiplier = engine.currentMultiplier,
@@ -331,6 +336,29 @@ fun PulseRiderGameScreen(
         milestoneText = engine.currentMilestoneText,
         milestoneAlpha = engine.milestoneBannerAlpha,
         dailyModifier = engine.dailyModifier,
+        comboTimerFraction = engine.comboTimerFraction,
+        onPause = { engine.pauseGame() },
+        modifier = Modifier.fillMaxSize()
+      )
+    }
+
+    // --- PAUSE OVERLAY ---
+    if (engine.state == GameScreenState.PAUSED) {
+      PauseOverlay(
+        score = engine.score.toInt(),
+        multiplier = engine.currentMultiplier,
+        nearMisses = engine.nearMissCount,
+        distance = engine.distanceTraveled.toInt(),
+        phase = engine.currentPhase,
+        isSoundFx = uiState.isSoundFxEnabled,
+        isMusic = uiState.isMusicSynthEnabled,
+        isHaptics = uiState.isHapticsEnabled,
+        onResume = { engine.resumeGame() },
+        onRestart = { engine.startNewGame() },
+        onQuitToMenu = { engine.quitToMenu() },
+        onToggleSound = { viewModel.toggleSoundFx() },
+        onToggleMusic = { viewModel.toggleMusicSynth() },
+        onToggleHaptics = { viewModel.toggleHaptics() },
         modifier = Modifier.fillMaxSize()
       )
     }
@@ -935,6 +963,8 @@ fun InGameHud(
   milestoneText: String?,
   milestoneAlpha: Float,
   dailyModifier: com.example.game.DailyModifier? = null,
+  comboTimerFraction: Float = 0f,
+  onPause: () -> Unit = {},
   modifier: Modifier = Modifier
 ) {
   Box(
@@ -942,7 +972,7 @@ fun InGameHud(
       .statusBarsPadding()
       .padding(horizontal = 20.dp, vertical = 12.dp)
   ) {
-    // Top Row: Score & Multiplier
+    // Top Row: Score & Multiplier & Pause
     Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.SpaceBetween,
@@ -996,71 +1026,83 @@ fun InGameHud(
         }
       }
 
-      // Right: Multiplier & Near-Miss Counter
-      Column(horizontalAlignment = Alignment.End) {
-        // Multiplier Pill
-        Box(
-          modifier = Modifier
-            .background(
-              brush = Brush.horizontalGradient(
-                colors = listOf(
-                  if (multiplier > 1) NeonAmber else CyberSurfaceVariant,
-                  if (multiplier > 1) NeonMagenta else CyberSurface
-                )
-              ),
-              shape = RoundedCornerShape(20.dp)
+      // Right: Multiplier, Near-Miss Counter & Pause Button
+      Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        Column(horizontalAlignment = Alignment.End) {
+          // Multiplier Pill
+          Box(
+            modifier = Modifier
+              .background(
+                color = if (multiplier > 1) NeonAmber else CyberSurfaceVariant,
+                shape = RoundedCornerShape(20.dp)
+              )
+              .border(
+                width = 1.5.dp,
+                color = if (multiplier > 1) NeonAmber else CyberSurfaceVariant,
+                shape = RoundedCornerShape(20.dp)
+              )
+              .padding(horizontal = 14.dp, vertical = 6.dp)
+          ) {
+            Text(
+              text = "${multiplier}X STREAK",
+              color = if (multiplier > 1) Color.Black else TextSecondary,
+              fontSize = 15.sp,
+              fontWeight = FontWeight.ExtraBold,
+              fontFamily = FontFamily.Monospace
             )
-            .border(
-              width = 1.5.dp,
-              color = if (multiplier > 1) NeonAmber else CyberSurfaceVariant,
-              shape = RoundedCornerShape(20.dp)
-            )
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-        ) {
+          }
+
+          // Combo Timer Bar
+          if (comboTimerFraction > 0f) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(
+              modifier = Modifier
+                .width(120.dp)
+                .height(4.dp)
+                .background(CyberSurfaceVariant, RoundedCornerShape(2.dp))
+            ) {
+              Box(
+                modifier = Modifier
+                  .fillMaxHeight()
+                  .fillMaxWidth(comboTimerFraction)
+                  .background(
+                    color = if (comboTimerFraction < 0.3f) NeonAmber else NeonCyan,
+                    shape = RoundedCornerShape(2.dp)
+                  )
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.height(4.dp))
+
           Text(
-            text = "${multiplier}X STREAK",
-            color = if (multiplier > 1) Color.Black else TextSecondary,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.ExtraBold,
+            text = "$nearMisses NEAR-MISSES",
+            color = NeonCyan,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace
           )
         }
 
-        // Combo Timer Bar
-        if (engine.comboTimerFraction > 0f) {
-          Spacer(modifier = Modifier.height(4.dp))
-          Box(
-            modifier = Modifier
-              .width(120.dp)
-              .height(4.dp)
-              .background(CyberSurfaceVariant, RoundedCornerShape(2.dp))
-          ) {
-            Box(
-              modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(engine.comboTimerFraction)
-                .background(
-                  brush = Brush.horizontalGradient(
-                    listOf(
-                      if (engine.comboTimerFraction < 0.3f) NeonAmber else NeonCyan,
-                      if (engine.comboTimerFraction < 0.3f) NeonAmber.copy(alpha = 0.5f) else NeonMagenta
-                    )
-                  ),
-                  shape = RoundedCornerShape(2.dp)
-                )
-            )
-          }
+        // Pause Button
+        IconButton(
+          onClick = onPause,
+          modifier = Modifier
+            .size(40.dp)
+            .background(CyberSurface.copy(alpha = 0.9f), CircleShape)
+            .border(1.2.dp, NeonCyan.copy(alpha = 0.6f), CircleShape)
+            .testTag("pause_button")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Pause,
+            contentDescription = "Pause Game",
+            tint = NeonCyan,
+            modifier = Modifier.size(20.dp)
+          )
         }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-          text = "$nearMisses NEAR-MISSES",
-          color = NeonCyan,
-          fontSize = 12.sp,
-          fontWeight = FontWeight.Bold,
-          fontFamily = FontFamily.Monospace
-        )
       }
     }
 
@@ -1103,10 +1145,10 @@ fun InGameHud(
           .padding(bottom = 36.dp)
           .alpha(milestoneAlpha)
           .background(
-            brush = Brush.horizontalGradient(listOf(NeonMagenta, NeonAmber, NeonCyan)),
+            color = NeonAmber,
             shape = RoundedCornerShape(8.dp)
           )
-          .border(1.dp, Color.White, RoundedCornerShape(8.dp))
+          .border(1.dp, NeonAmber, RoundedCornerShape(8.dp))
           .padding(horizontal = 14.dp, vertical = 6.dp)
       ) {
         Text(
@@ -1278,6 +1320,7 @@ fun AttractScreenOverlay(
           )
         }
       }
+    }
 
     // Center Title & High Score
     Column(
@@ -1371,7 +1414,7 @@ fun AttractScreenOverlay(
           .fillMaxWidth()
           .border(
             width = 1.dp,
-            brush = Brush.horizontalGradient(listOf(NeonMagenta.copy(alpha = 0.6f), NeonAmber.copy(alpha = 0.6f))),
+            color = NeonMagenta.copy(alpha = 0.5f),
             shape = RoundedCornerShape(14.dp)
           )
       ) {
@@ -1466,10 +1509,10 @@ fun AttractScreenOverlay(
         modifier = Modifier
           .scale(pulseScale)
           .background(
-            brush = Brush.horizontalGradient(listOf(NeonCyan, NeonMagenta)),
+            color = NeonCyan,
             shape = RoundedCornerShape(30.dp)
           )
-          .border(2.dp, Color.White, RoundedCornerShape(30.dp))
+          .border(1.5.dp, NeonCyan, RoundedCornerShape(30.dp))
           .padding(horizontal = 36.dp, vertical = 16.dp)
           .testTag("start_game_button")
       ) {
@@ -1564,8 +1607,8 @@ fun GameOverScoreCard(
         .fillMaxWidth()
         .widthIn(max = 420.dp)
         .border(
-          width = 2.dp,
-          brush = Brush.linearGradient(listOf(NeonMagenta, NeonCyan, NeonAmber)),
+          width = 1.5.dp,
+          color = NeonCyan.copy(alpha = 0.6f),
           shape = RoundedCornerShape(20.dp)
         )
         .testTag("game_over_card")
@@ -1981,7 +2024,7 @@ fun AchievementUnlockedBanner(
         .widthIn(max = 340.dp)
         .border(
           width = 1.dp,
-          brush = Brush.horizontalGradient(listOf(NeonAmber, NeonCyan)),
+          color = NeonAmber,
           shape = RoundedCornerShape(10.dp)
         )
     ) {
@@ -1996,7 +2039,7 @@ fun AchievementUnlockedBanner(
           modifier = Modifier
             .size(32.dp)
             .background(
-              brush = Brush.linearGradient(listOf(NeonAmber, NeonCyan)),
+              color = NeonAmber,
               shape = CircleShape
             ),
           contentAlignment = Alignment.Center
@@ -2055,8 +2098,8 @@ fun AchievementGalleryDialog(
         .fillMaxWidth()
         .fillMaxHeight(0.85f)
         .border(
-          width = 2.dp,
-          brush = Brush.linearGradient(listOf(NeonAmber, NeonCyan)),
+          width = 1.5.dp,
+          color = NeonCyan.copy(alpha = 0.7f),
           shape = RoundedCornerShape(16.dp)
         )
     ) {
@@ -2196,6 +2239,276 @@ fun AchievementGalleryDialog(
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold
           )
+        }
+      }
+    }
+  }
+}
+
+@Composable
+fun PauseOverlay(
+  score: Int,
+  multiplier: Int,
+  nearMisses: Int,
+  distance: Int,
+  phase: GamePhase,
+  isSoundFx: Boolean,
+  isMusic: Boolean,
+  isHaptics: Boolean,
+  onResume: () -> Unit,
+  onRestart: () -> Unit,
+  onQuitToMenu: () -> Unit,
+  onToggleSound: () -> Unit,
+  onToggleMusic: () -> Unit,
+  onToggleHaptics: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  Box(
+    modifier = modifier
+      .background(Color.Black.copy(alpha = 0.82f))
+      .padding(horizontal = 28.dp),
+    contentAlignment = Alignment.Center
+  ) {
+    Card(
+      colors = CardDefaults.cardColors(containerColor = CyberSurface),
+      shape = RoundedCornerShape(20.dp),
+      modifier = Modifier
+        .fillMaxWidth()
+        .widthIn(max = 380.dp)
+        .border(
+          width = 1.5.dp,
+          color = NeonCyan.copy(alpha = 0.7f),
+          shape = RoundedCornerShape(20.dp)
+        )
+        .testTag("pause_menu_card")
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+      ) {
+        // Pause Title Tag
+        Box(
+          modifier = Modifier
+            .background(NeonCyan.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+            .border(1.dp, NeonCyan, RoundedCornerShape(6.dp))
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+        ) {
+          Text(
+            text = "GAME PAUSED",
+            color = NeonCyan,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace,
+            letterSpacing = 2.sp
+          )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Current Run Quick Stats
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .background(CyberSurfaceVariant, RoundedCornerShape(12.dp))
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+          horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+              text = "SCORE",
+              color = TextSecondary,
+              fontSize = 10.sp,
+              fontFamily = FontFamily.Monospace
+            )
+            Text(
+              text = "$score",
+              color = TextPrimary,
+              fontSize = 18.sp,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace
+            )
+          }
+
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+              text = "STREAK",
+              color = TextSecondary,
+              fontSize = 10.sp,
+              fontFamily = FontFamily.Monospace
+            )
+            Text(
+              text = "${multiplier}X",
+              color = NeonAmber,
+              fontSize = 18.sp,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace
+            )
+          }
+
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+              text = "PHASE",
+              color = TextSecondary,
+              fontSize = 10.sp,
+              fontFamily = FontFamily.Monospace
+            )
+            Text(
+              text = "${phase.phaseNumber}",
+              color = phase.primaryColor,
+              fontSize = 18.sp,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Audio & Haptics Toggles
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+          IconButton(
+            onClick = onToggleSound,
+            modifier = Modifier
+              .background(if (isSoundFx) NeonCyan.copy(alpha = 0.15f) else CyberSurfaceVariant, CircleShape)
+              .border(1.dp, if (isSoundFx) NeonCyan else Color.Transparent, CircleShape)
+          ) {
+            Icon(
+              imageVector = if (isSoundFx) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+              contentDescription = "Sound FX",
+              tint = if (isSoundFx) NeonCyan else TextMuted
+            )
+          }
+
+          IconButton(
+            onClick = onToggleMusic,
+            modifier = Modifier
+              .background(if (isMusic) NeonMagenta.copy(alpha = 0.15f) else CyberSurfaceVariant, CircleShape)
+              .border(1.dp, if (isMusic) NeonMagenta else Color.Transparent, CircleShape)
+          ) {
+            Icon(
+              imageVector = if (isMusic) Icons.Default.MusicNote else Icons.Default.MusicOff,
+              contentDescription = "Synth Music",
+              tint = if (isMusic) NeonMagenta else TextMuted
+            )
+          }
+
+          IconButton(
+            onClick = onToggleHaptics,
+            modifier = Modifier
+              .background(if (isHaptics) NeonAmber.copy(alpha = 0.15f) else CyberSurfaceVariant, CircleShape)
+              .border(1.dp, if (isHaptics) NeonAmber else Color.Transparent, CircleShape)
+          ) {
+            Icon(
+              imageVector = Icons.Default.Vibration,
+              contentDescription = "Haptics",
+              tint = if (isHaptics) NeonAmber else TextMuted
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Action Buttons
+        // 1. Resume Game Button
+        Button(
+          onClick = onResume,
+          colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
+          shape = RoundedCornerShape(12.dp),
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .testTag("resume_button")
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.PlayArrow,
+              contentDescription = null,
+              tint = Color.Black,
+              modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "RESUME",
+              color = Color.Black,
+              fontWeight = FontWeight.Black,
+              fontFamily = FontFamily.Monospace,
+              fontSize = 15.sp
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 2. Restart Button
+        OutlinedButton(
+          onClick = onRestart,
+          shape = RoundedCornerShape(12.dp),
+          border = androidx.compose.foundation.BorderStroke(1.dp, NeonAmber),
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .testTag("restart_button")
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.Refresh,
+              contentDescription = null,
+              tint = NeonAmber,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "RETRY RUN",
+              color = NeonAmber,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace,
+              fontSize = 13.sp
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 3. Quit to Menu (Home Screen)
+        Button(
+          onClick = onQuitToMenu,
+          colors = ButtonDefaults.buttonColors(containerColor = CyberSurfaceVariant),
+          shape = RoundedCornerShape(12.dp),
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .testTag("quit_to_menu_button")
+        ) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.Home,
+              contentDescription = null,
+              tint = TextPrimary,
+              modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+              text = "MAIN MENU",
+              color = TextPrimary,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace,
+              fontSize = 13.sp
+            )
+          }
         }
       }
     }
