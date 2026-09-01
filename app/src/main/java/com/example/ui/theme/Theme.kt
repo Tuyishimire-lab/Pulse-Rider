@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 private val CyberColorScheme = darkColorScheme(
   primary = NeonCyan,
   onPrimary = CyberBackground,
-  secondary = NeonMagenta,
+  secondary = NeonBlue,
   onSecondary = CyberBackground,
   tertiary = NeonAmber,
   onTertiary = CyberBackground,
@@ -17,8 +17,8 @@ private val CyberColorScheme = darkColorScheme(
   onSurface = TextPrimary,
   surfaceVariant = CyberSurfaceVariant,
   onSurfaceVariant = TextSecondary,
-  error = NeonRed,
-  onError = TextPrimary,
+  error = NeonAmber,
+  onError = CyberBackground,
 )
 
 @Composable
@@ -31,4 +31,3 @@ fun MyApplicationTheme(
     content = content
   )
 }
-

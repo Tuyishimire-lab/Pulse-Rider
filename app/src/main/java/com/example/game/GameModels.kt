@@ -126,8 +126,8 @@ val GamePhases = listOf(
     minSpawnDistance = 460f,
     maxSpawnDistance = 620f,
     primaryColor = NeonCyan,
-    secondaryColor = NeonMagenta,
-    tunnelAccent = Color(0xFF00F0FF)
+    secondaryColor = NeonBlue,
+    tunnelAccent = Color(0xFF7EE4E3)
   ),
   GamePhase(
     phaseNumber = 2,
@@ -137,9 +137,9 @@ val GamePhases = listOf(
     baseSpeed = 680f,
     minSpawnDistance = 380f,
     maxSpawnDistance = 500f,
-    primaryColor = NeonPurple,
-    secondaryColor = NeonBlue,
-    tunnelAccent = Color(0xFFA855F7)
+    primaryColor = NeonBlue,
+    secondaryColor = NeonCyan,
+    tunnelAccent = Color(0xFF42A5F5)
   ),
   GamePhase(
     phaseNumber = 3,
@@ -150,8 +150,8 @@ val GamePhases = listOf(
     minSpawnDistance = 310f,
     maxSpawnDistance = 420f,
     primaryColor = NeonAmber,
-    secondaryColor = NeonRed,
-    tunnelAccent = Color(0xFFFFB800)
+    secondaryColor = NeonGreen,
+    tunnelAccent = Color(0xFFFFD780)
   ),
   GamePhase(
     phaseNumber = 4,
@@ -162,7 +162,7 @@ val GamePhases = listOf(
     minSpawnDistance = 260f,
     maxSpawnDistance = 360f,
     primaryColor = NeonGreen,
-    secondaryColor = NeonMagenta,
-    tunnelAccent = Color(0xFF00FF66)
+    secondaryColor = NeonBlue,
+    tunnelAccent = Color(0xFF99FF88)
   )
 )
