@@ -1334,10 +1334,6 @@ fun GameOverScoreCard(
     modifier = modifier
       .fillMaxSize()
       .background(Color.Black.copy(alpha = 0.75f))
-      // Consume taps on the overlay so they don't bleed through to restart
-      .pointerInput(Unit) {
-        detectTapGestures { /* consumed — use RETRY button to restart */ }
-      }
       .statusBarsPadding()
       .navigationBarsPadding()
       .padding(20.dp),
