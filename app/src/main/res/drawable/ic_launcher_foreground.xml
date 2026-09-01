@@ -1,0 +1,77 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Trailing energy ribbon wave -->
+    <path
+        android:pathData="M24,54 C36,38 48,70 60,54 C68,44 74,54 84,54"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="24"
+                android:startY="54"
+                android:endX="84"
+                android:endY="54"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#0000F0FF" />
+                <item android:offset="0.4" android:color="#9900F0FF" />
+                <item android:offset="0.8" android:color="#E6FF007F" />
+                <item android:offset="1.0" android:color="#FFFFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Inner bright ribbon core -->
+    <path
+        android:pathData="M32,54 C40,42 48,66 58,54 C66,46 72,54 80,54"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeColor="#FFFFFF" />
+    <!-- Outer pulse glow circle -->
+    <path
+        android:pathData="M80,54m-16,0a16,16 0 1,1 32,0a16,16 0 1,1 -32,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="64"
+                android:startY="38"
+                android:endX="96"
+                android:endY="70"
+                android:type="radial"
+                android:gradientRadius="16">
+                <item android:offset="0.0" android:color="#CC00F0FF" />
+                <item android:offset="0.6" android:color="#66FF007F" />
+                <item android:offset="1.0" android:color="#00000000" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Core glowing orb -->
+    <path
+        android:pathData="M80,54m-9,0a9,9 0 1,1 18,0a9,9 0 1,1 -18,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="71"
+                android:startY="45"
+                android:endX="89"
+                android:endY="63"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#00F0FF" />
+                <item android:offset="1.0" android:color="#FF007F" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- White hot center -->
+    <path
+        android:pathData="M80,54m-4,0a4,4 0 1,1 8,0a4,4 0 1,1 -8,0"
+        android:fillColor="#FFFFFF" />
+    <!-- Speed streaks -->
+    <path
+        android:pathData="M20,38 L42,38 M16,70 L36,70 M48,32 L68,32 M44,76 L62,76"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeColor="#6600F0FF" />
+</vector>
+
