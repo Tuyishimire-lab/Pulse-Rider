@@ -87,9 +87,37 @@ class GameEngine(
   var milestoneBannerAlpha: Float by mutableFloatStateOf(0f)
   private val reachedMilestones = mutableSetOf<Int>()
 
+  // Combo Timer — streak decays over time
+  var comboTimer: Float = 0f
+  val comboWindow: Float = 3.0f
+  var comboTimerFraction: Float by mutableFloatStateOf(0f)
+
+  // Per-run achievement counters
+  var shieldsCollectedThisRun: Int = 0
+  var surgesCollectedThisRun: Int = 0
+  var usedShieldThisRun: Boolean = false
+
   // Game-over restart cooldown (prevents accidental restarts)
   private var gameOverTimestamp: Long = 0L
   private val gameOverCooldownMs: Long = 600L
+
+  // Ghost Run Recording & Playback
+  private val ghostFrames = mutableListOf<GhostFrame>()
+  private var ghostRecordTick: Int = 0
+  private var runElapsedTime: Float = 0f
+  var activeGhost: GhostRecording? = null
+  var ghostPlaybackTime: Float = 0f
+  var ghostY: Float = 0f
+  var lastGhostRecording: GhostRecording? = null
+    private set
+
+  // Daily Challenge
+  var isDailyChallenge: Boolean = false
+    private set
+  var dailyModifier: DailyModifier? = null
+    private set
+  var dailyScoreMultiplier: Int = 1
+    private set
 
   fun updateDimensions(width: Float, height: Float) {
     screenWidth = width
@@ -109,14 +137,25 @@ class GameEngine(
     }
   }
 
-  fun startNewGame() {
+  fun startNewGame(dailyChallenge: DailyChallenge? = null) {
     state = GameScreenState.PLAYING
     score = 0.0
     distanceTraveled = 0.0
     currentMultiplier = 1
     maxStreak = 1
     nearMissCount = 0
-    currentPhase = GamePhases.first()
+
+    // Daily challenge setup
+    isDailyChallenge = dailyChallenge != null
+    dailyModifier = dailyChallenge?.modifier
+    dailyScoreMultiplier = if (dailyModifier == DailyModifier.GLASS_CANNON) 3 else 1
+
+    // SPEED_DEMON: start at Phase 2
+    currentPhase = if (dailyModifier == DailyModifier.SPEED_DEMON) {
+      GamePhases[1.coerceAtMost(GamePhases.lastIndex)]
+    } else {
+      GamePhases.first()
+    }
 
     playerTargetLane = Lane.TOP
     playerY = topRailY
@@ -133,6 +172,17 @@ class GameEngine(
     gridScrollPhase = 0f
     currentSpeedMultiplier = 1.0f
     gameOverTimestamp = 0L
+    comboTimer = 0f
+    comboTimerFraction = 0f
+    shieldsCollectedThisRun = 0
+    surgesCollectedThisRun = 0
+    usedShieldThisRun = false
+    ghostFrames.clear()
+    ghostRecordTick = 0
+    runElapsedTime = 0f
+    ghostPlaybackTime = 0f
+    ghostY = topRailY
+    lastGhostRecording = null
 
     playerTrail.clear()
     particles.clear()
@@ -181,7 +231,11 @@ class GameEngine(
       return
     }
 
-    val targetLane = if (swipeDistanceY > 0) Lane.BOTTOM else Lane.TOP
+    val targetLane = if (swipeDistanceY > 0) {
+      if (dailyModifier == DailyModifier.MIRROR_MODE) Lane.TOP else Lane.BOTTOM
+    } else {
+      if (dailyModifier == DailyModifier.MIRROR_MODE) Lane.BOTTOM else Lane.TOP
+    }
 
     // Only switch if we're not already on the target lane
     if (targetLane == playerTargetLane) return
@@ -248,6 +302,16 @@ class GameEngine(
       scoreSurgeTimer = (scoreSurgeTimer - dtClamped).coerceAtLeast(0f)
     }
 
+    // Combo timer decay — streak resets when timer expires
+    if (comboTimer > 0f) {
+      comboTimer = (comboTimer - dtClamped).coerceAtLeast(0f)
+      comboTimerFraction = comboTimer / comboWindow
+      if (comboTimer <= 0f) {
+        currentMultiplier = 1
+        comboTimerFraction = 0f
+      }
+    }
+
     if (state == GameScreenState.PLAYING) {
       updatePlayingState(gameDt, dtClamped)
     } else if (state == GameScreenState.ATTRACT) {
@@ -282,7 +346,7 @@ class GameEngine(
     distanceTraveled += distanceStep
 
     val surgeBonus = if (scoreSurgeTimer > 0f) 2 else 1
-    val frameScore = (effectiveSpeed * 0.035f * currentMultiplier * surgeBonus * gameDt).toDouble()
+    val frameScore = (effectiveSpeed * 0.035f * currentMultiplier * surgeBonus * dailyScoreMultiplier * gameDt).toDouble()
     score += frameScore
 
     // Check milestones (500, 1000, 2500, 5000, 7500, 10000)
@@ -300,6 +364,23 @@ class GameEngine(
 
     // Decay gesture boost back to neutral
     gestureBoost = (gestureBoost + (1.0f - gestureBoost) * 4f * gameDt).coerceIn(0.5f, 2.5f)
+
+    // Ghost: record frame every 3 ticks
+    runElapsedTime += gameDt
+    ghostRecordTick++
+    if (ghostRecordTick % 3 == 0) {
+      ghostFrames.add(GhostFrame(y = playerY, lane = playerTargetLane.index, elapsedTime = runElapsedTime))
+    }
+
+    // Ghost: advance playback
+    val ghost = activeGhost
+    if (ghost != null && ghost.frames.isNotEmpty()) {
+      ghostPlaybackTime += gameDt
+      val frame = ghost.frames.lastOrNull { it.elapsedTime <= ghostPlaybackTime }
+      if (frame != null) {
+        ghostY = frame.y
+      }
+    }
 
     // Update speed lines intensity
     speedLinesIntensity = ((effectiveSpeed - 400f) / 700f).coerceIn(0.2f, 1.0f)
@@ -374,7 +455,9 @@ class GameEngine(
 
     if (nextObstacleSpawnX <= screenWidth + 200f) {
       val scoreInt = score.toInt()
-      val spawnGap = Random.nextFloat() * (currentPhase.maxSpawnDistance - currentPhase.minSpawnDistance) + currentPhase.minSpawnDistance
+      // MARATHON modifier: wider spawn distances
+      val marathonFactor = if (dailyModifier == DailyModifier.MARATHON) 1.5f else 1.0f
+      val spawnGap = (Random.nextFloat() * (currentPhase.maxSpawnDistance - currentPhase.minSpawnDistance) + currentPhase.minSpawnDistance) * marathonFactor
       nextObstacleSpawnX = (screenWidth + 200f).coerceAtLeast(nextObstacleSpawnX + spawnGap)
 
       val blockWidth = (screenWidth * 0.12f).coerceIn(70f, 130f)
@@ -479,13 +562,14 @@ class GameEngine(
           floatingTexts.add(
             FloatingText(
               id = idGenerator.getAndIncrement(),
-              text = "SHIELD ABSORBED!",
-              x = playerX,
-              y = playerY - 60f,
+              text = "SHIELD ABSORBED",
+              x = playerX - 15f,
+              y = topRailY - 35f,
               color = NeonCyan,
-              scale = 1.2f
+              scale = 0.85f
             )
           )
+          usedShieldThisRun = true
           iterator.remove()
           continue
         } else {
@@ -502,13 +586,11 @@ class GameEngine(
 
         // Distance from player to the obstacle bounding box
         val distToCenter = sqrt((playerX - obs.x) * (playerX - obs.x) + (playerY - obstacleRailY) * (playerY - obstacleRailY))
-        val isTightDodge = distToCenter < (railSpacing * 0.75f)
+        val nearMissMultiplier = if (dailyModifier == DailyModifier.TIGHT_SQUEEZE) 0.55f else 0.75f
+        val isTightDodge = distToCenter < (railSpacing * nearMissMultiplier)
 
         if (isTightDodge && obs.type != ObstacleType.SHIMMER_GHOST) {
           triggerNearMiss(obs.x, obstacleRailY)
-        } else if (obs.type != ObstacleType.SHIMMER_GHOST) {
-          // Streak broken — obstacle passed without a near-miss graze
-          currentMultiplier = 1
         }
       }
 
@@ -522,6 +604,8 @@ class GameEngine(
   private fun triggerNearMiss(obsX: Float, obsY: Float) {
     nearMissCount++
     currentMultiplier = (currentMultiplier + 1).coerceAtMost(10)
+    comboTimer = comboWindow
+    comboTimerFraction = 1.0f
     if (currentMultiplier > maxStreak) {
       maxStreak = currentMultiplier
     }
@@ -539,15 +623,15 @@ class GameEngine(
     // Near miss particle burst
     spawnNearMissParticles(playerX, (playerY + obsY) / 2f)
 
-    // Floating text
+    // Floating text — positioned above the track trailing behind player
     floatingTexts.add(
       FloatingText(
         id = idGenerator.getAndIncrement(),
-        text = "+$nearMissBonus NEAR-MISS! x$currentMultiplier",
-        x = playerX + 40f,
-        y = playerY - 45f,
+        text = "+$nearMissBonus x$currentMultiplier",
+        x = playerX - 15f,
+        y = topRailY - 35f,
         color = NeonAmber,
-        scale = 1.3f
+        scale = 0.85f
       )
     )
   }
@@ -559,6 +643,10 @@ class GameEngine(
       // Spawn a random powerup
       val typeRoll = Random.nextFloat()
       val type = when {
+        // NO_SHIELDS / GLASS_CANNON: skip shield spawns
+        dailyModifier == DailyModifier.NO_SHIELDS || dailyModifier == DailyModifier.GLASS_CANNON -> {
+          if (typeRoll < 0.55f) PowerUpType.SLOW_MO else PowerUpType.SCORE_SURGE
+        }
         typeRoll < 0.40f -> PowerUpType.SHIELD
         typeRoll < 0.70f -> PowerUpType.SLOW_MO
         else -> PowerUpType.SCORE_SURGE
@@ -611,14 +699,15 @@ class GameEngine(
     when (type) {
       PowerUpType.SHIELD -> {
         hasShield = true
+        shieldsCollectedThisRun++
         floatingTexts.add(
           FloatingText(
             id = idGenerator.getAndIncrement(),
-            text = "🛡️ SHIELD MATRIX ACTIVE",
-            x = playerX,
-            y = playerY - 50f,
+            text = "SHIELD ACTIVE",
+            x = playerX - 15f,
+            y = topRailY - 35f,
             color = NeonCyan,
-            scale = 1.3f
+            scale = 0.85f
           )
         )
       }
@@ -627,24 +716,27 @@ class GameEngine(
         floatingTexts.add(
           FloatingText(
             id = idGenerator.getAndIncrement(),
-            text = "⏱️ CHRONO WARP (SLOW-MO)",
-            x = playerX,
-            y = playerY - 50f,
+            text = "SLOW-MO ACTIVE",
+            x = playerX - 15f,
+            y = topRailY - 35f,
             color = NeonAmber,
-            scale = 1.3f
+            scale = 0.85f
           )
         )
       }
       PowerUpType.SCORE_SURGE -> {
-        scoreSurgeTimer = type.durationSeconds
+        // SURGE_RUSH modifier: double duration
+        val surgeDuration = if (dailyModifier == DailyModifier.SURGE_RUSH) type.durationSeconds * 2f else type.durationSeconds
+        scoreSurgeTimer = surgeDuration
+        surgesCollectedThisRun++
         floatingTexts.add(
           FloatingText(
             id = idGenerator.getAndIncrement(),
-            text = "⚡ 2X SCORE SURGE!",
-            x = playerX,
-            y = playerY - 50f,
+            text = "2X SURGE ACTIVE",
+            x = playerX - 15f,
+            y = topRailY - 35f,
             color = NeonMagenta,
-            scale = 1.4f
+            scale = 0.85f
           )
         )
       }
@@ -656,7 +748,7 @@ class GameEngine(
     for (m in milestoneList) {
       if (scoreInt >= m && !reachedMilestones.contains(m)) {
         reachedMilestones.add(m)
-        currentMilestoneText = "🔥 $m MILESTONE REACHED! 🔥"
+        currentMilestoneText = ">> $m MILESTONE REACHED <<"
         milestoneBannerAlpha = 1.0f
         audio?.playMilestone()
         haptics?.powerUp()
@@ -671,6 +763,13 @@ class GameEngine(
     gameOverTimestamp = System.currentTimeMillis()
     screenShakeTrauma = 1.0f
     chromaticFlash = 1.0f
+
+    // Produce ghost recording for the ViewModel to save
+    lastGhostRecording = GhostRecording(
+      frames = ghostFrames.toList(),
+      finalScore = score.toInt(),
+      totalDuration = runElapsedTime
+    )
 
     audio?.stopRhythm()
     audio?.playDeathCrash()

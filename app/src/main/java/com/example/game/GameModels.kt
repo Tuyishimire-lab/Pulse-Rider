@@ -28,9 +28,9 @@ enum class PowerUpType(
   val iconSymbol: String,
   val durationSeconds: Float
 ) {
-  SHIELD("SHIELD MATRIX", NeonCyan, "🛡️", 0f), // Single use
-  SLOW_MO("CHRONO WARP", NeonAmber, "⏱️", 4.5f),
-  SCORE_SURGE("SURGE 2X", NeonMagenta, "⚡", 5.0f)
+  SHIELD("SHIELD MATRIX", NeonCyan, "+", 0f), // Single use
+  SLOW_MO("CHRONO WARP", NeonAmber, "~", 4.5f),
+  SCORE_SURGE("SURGE 2X", NeonMagenta, "x2", 5.0f)
 }
 
 enum class ObstacleType {

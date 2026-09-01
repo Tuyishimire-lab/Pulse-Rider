@@ -10,6 +10,8 @@ import com.example.audio.HapticFeedbackHelper
 import com.example.data.AppDatabase
 import com.example.data.GamePreferences
 import com.example.data.RunRecord
+import com.example.game.DailyChallenge
+import com.example.game.AchievementManager
 import com.example.game.GameEngine
 import com.example.game.GameScreenState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +26,7 @@ data class GameUiState(
   val isMusicSynthEnabled: Boolean = true,
   val isHapticsEnabled: Boolean = true,
   val localHighScore: Int = 0,
+  val dailyHighScore: Int = 0,
   val showLeaderboard: Boolean = false,
   val lastRunRecord: RunRecord? = null,
   val isNewHighScore: Boolean = false
@@ -37,13 +40,25 @@ class PulseRiderViewModel(application: Application) : AndroidViewModel(applicati
   val audio = CyberSynthAudio(viewModelScope)
   val haptics = HapticFeedbackHelper(application)
   val gameEngine = GameEngine(audio, haptics)
+  val achievementManager = AchievementManager(application)
+
+  val todayChallenge: DailyChallenge
+    get() {
+      val base = DailyChallenge.today()
+      if (preferences.dailyChallengeDate != base.date) {
+        preferences.dailyChallengeDate = base.date
+        preferences.dailyHighScore = 0
+      }
+      return base.copy(highScore = preferences.dailyHighScore)
+    }
 
   private val _uiState = MutableStateFlow(
     GameUiState(
       isSoundFxEnabled = preferences.soundFxEnabled,
       isMusicSynthEnabled = preferences.musicSynthEnabled,
       isHapticsEnabled = preferences.hapticsEnabled,
-      localHighScore = preferences.localHighScore
+      localHighScore = preferences.localHighScore,
+      dailyHighScore = if (preferences.dailyChallengeDate == DailyChallenge.today().date) preferences.dailyHighScore else 0
     )
   )
   val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
@@ -64,6 +79,11 @@ class PulseRiderViewModel(application: Application) : AndroidViewModel(applicati
     audio.sfxEnabled = preferences.soundFxEnabled
     audio.musicEnabled = preferences.musicSynthEnabled
     haptics.enabled = preferences.hapticsEnabled
+
+    // Load ghost run for playback
+    if (preferences.ghostEnabled) {
+      gameEngine.activeGhost = preferences.loadGhostRecording()
+    }
   }
 
   fun toggleSoundFx() {
@@ -91,11 +111,27 @@ class PulseRiderViewModel(application: Application) : AndroidViewModel(applicati
     _uiState.value = _uiState.value.copy(showLeaderboard = show)
   }
 
+  fun startDailyChallenge() {
+    gameEngine.startNewGame(todayChallenge)
+  }
+
   fun handleGameOver(finalScore: Int, nearMisses: Int, maxStreak: Int, distance: Int, phase: Int) {
-    val isNewBest = finalScore > preferences.localHighScore
-    if (isNewBest) {
-      preferences.localHighScore = finalScore
-      _uiState.value = _uiState.value.copy(localHighScore = finalScore)
+    val isDaily = gameEngine.isDailyChallenge
+    var isNewBest = false
+
+    if (isDaily) {
+      if (finalScore > preferences.dailyHighScore) {
+        preferences.dailyHighScore = finalScore
+        preferences.dailyChallengeDate = todayChallenge.date
+        _uiState.value = _uiState.value.copy(dailyHighScore = finalScore)
+        isNewBest = true
+      }
+    } else {
+      if (finalScore > preferences.localHighScore) {
+        preferences.localHighScore = finalScore
+        _uiState.value = _uiState.value.copy(localHighScore = finalScore)
+        isNewBest = true
+      }
     }
 
     val record = RunRecord(
@@ -113,17 +149,32 @@ class PulseRiderViewModel(application: Application) : AndroidViewModel(applicati
 
     viewModelScope.launch {
       runDao.insertRun(record)
+      // Check achievements after recording the run
+      val currentTotalRuns = (totalRunsCount.value) + 1 // +1 for this run
+      val currentTotalNearMisses = (totalNearMisses.value ?: 0) + nearMisses
+      achievementManager.checkAchievements(gameEngine, currentTotalRuns, currentTotalNearMisses)
+
+      // Save ghost recording if this run beats the previous ghost
+      val ghostRecording = gameEngine.lastGhostRecording
+      if (ghostRecording != null && preferences.ghostEnabled) {
+        val currentGhost = preferences.loadGhostRecording()
+        if (currentGhost == null || ghostRecording.finalScore > currentGhost.finalScore) {
+          preferences.saveGhostRecording(ghostRecording)
+        }
+        // Reload ghost for next run
+        gameEngine.activeGhost = preferences.loadGhostRecording()
+      }
     }
   }
 
   fun shareScoreCard(context: Context, score: Int, streak: Int, nearMisses: Int, phaseName: String, cardView: android.view.View? = null) {
     val shareText = """
-      ⚡ PULSE RIDER RUN ⚡
+      PULSE RIDER RUN
       ━━━━━━━━━━━━━━━━━━━━
-      🏆 Score: $score
-      🔥 Max Streak: x$streak
-      ⚡ Near-Misses: $nearMisses
-      🌐 Reached: Phase $phaseName
+      Score: $score
+      Max Streak: x$streak
+      Near-Misses: $nearMisses
+      Reached: Phase $phaseName
       
       Can you ride the pulse further? #PulseRider #Cyberpunk
     """.trimIndent()

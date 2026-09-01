@@ -144,6 +144,7 @@ fun PulseRiderGameScreen(
   var lastFrameTimeNanos by remember { mutableLongStateOf(0L) }
   var frameTick by remember { mutableLongStateOf(0L) }
   var prevGameState by remember { mutableStateOf(engine.state) }
+  var showAchievements by remember { mutableStateOf(false) }
 
   val infiniteTransition = rememberInfiniteTransition(label = "cyberGlow")
   val pulseScale by infiniteTransition.animateFloat(
@@ -329,6 +330,7 @@ fun PulseRiderGameScreen(
         scoreSurgeTimer = engine.scoreSurgeTimer,
         milestoneText = engine.currentMilestoneText,
         milestoneAlpha = engine.milestoneBannerAlpha,
+        dailyModifier = engine.dailyModifier,
         modifier = Modifier.fillMaxSize()
       )
     }
@@ -343,10 +345,15 @@ fun PulseRiderGameScreen(
         isMusic = uiState.isMusicSynthEnabled,
         isHaptics = uiState.isHapticsEnabled,
         pulseScale = pulseScale,
+        dailyChallenge = viewModel.todayChallenge,
+        onPlayDailyChallenge = { viewModel.startDailyChallenge() },
         onToggleSound = { viewModel.toggleSoundFx() },
         onToggleMusic = { viewModel.toggleMusicSynth() },
         onToggleHaptics = { viewModel.toggleHaptics() },
         onShowLeaderboard = { viewModel.setShowLeaderboard(true) },
+        onShowAchievements = { showAchievements = true },
+        unlockedCount = viewModel.achievementManager.unlockedAchievements.size,
+        totalCount = com.example.game.Achievement.entries.size,
         modifier = Modifier.fillMaxSize()
       )
     }
@@ -355,20 +362,28 @@ fun PulseRiderGameScreen(
     if (engine.state == GameScreenState.GAME_OVER) {
       GameOverScoreCard(
         score = engine.score.toInt(),
-        highScore = uiState.localHighScore,
+        highScore = if (engine.isDailyChallenge) uiState.dailyHighScore else uiState.localHighScore,
         isNewBest = uiState.isNewHighScore,
         nearMisses = engine.nearMissCount,
         maxStreak = engine.maxStreak,
         distance = engine.distanceTraveled.toInt(),
         phase = engine.currentPhase,
-        onRetry = { engine.startNewGame() },
+        isDailyChallenge = engine.isDailyChallenge,
+        dailyModifier = engine.dailyModifier,
+        onRetry = {
+          if (engine.isDailyChallenge) {
+            viewModel.startDailyChallenge()
+          } else {
+            engine.startNewGame()
+          }
+        },
         onShare = {
           viewModel.shareScoreCard(
             context = context,
             score = engine.score.toInt(),
             streak = engine.maxStreak,
             nearMisses = engine.nearMissCount,
-            phaseName = engine.currentPhase.name,
+            phaseName = if (engine.isDailyChallenge) "DAILY: ${engine.dailyModifier?.displayName ?: ""}" else engine.currentPhase.name,
             cardView = rootView
           )
         },
@@ -384,6 +399,23 @@ fun PulseRiderGameScreen(
         totalNearMisses = totalNearMisses ?: 0,
         totalRuns = totalRunsCount,
         onDismiss = { viewModel.setShowLeaderboard(false) }
+      )
+    }
+
+    // --- ACHIEVEMENT GALLERY ---
+    if (showAchievements) {
+      AchievementGalleryDialog(
+        unlockedAchievements = viewModel.achievementManager.unlockedAchievements,
+        onDismiss = { showAchievements = false }
+      )
+    }
+
+    // --- ACHIEVEMENT UNLOCK BANNER ---
+    val pendingAchievement = viewModel.achievementManager.pendingNotification
+    if (pendingAchievement != null) {
+      AchievementUnlockedBanner(
+        achievement = pendingAchievement,
+        onDismiss = { viewModel.achievementManager.dismissNotification() }
       )
     }
   }
@@ -722,6 +754,30 @@ private fun DrawScope.drawPlayer(
     )
   }
 
+  // GHOST PLAYER ORB (translucent best-run replay)
+  if (engine.activeGhost != null && engine.state == GameScreenState.PLAYING && engine.ghostPlaybackTime > 0f) {
+    val ghostAlpha = 0.2f
+    val ghostRadius = engine.playerRadius * 0.85f
+    // Ghost glow
+    drawCircle(
+      color = NeonCyan.copy(alpha = ghostAlpha * 0.3f),
+      center = Offset(engine.playerX, engine.ghostY),
+      radius = ghostRadius * 2f
+    )
+    // Ghost orb
+    drawCircle(
+      color = NeonCyan.copy(alpha = ghostAlpha),
+      center = Offset(engine.playerX, engine.ghostY),
+      radius = ghostRadius
+    )
+    // Ghost inner
+    drawCircle(
+      color = Color.White.copy(alpha = ghostAlpha * 0.5f),
+      center = Offset(engine.playerX, engine.ghostY),
+      radius = ghostRadius * 0.4f
+    )
+  }
+
   // 2. Active Shield Bubble
   if (engine.hasShield) {
     val shieldRadius = engine.playerRadius * 1.6f
@@ -854,9 +910,9 @@ private fun DrawScope.drawFloatingTexts(floatingTexts: List<com.example.game.Flo
           (ft.color.green * 255).toInt(),
           (ft.color.blue * 255).toInt()
         )
-        textSize = 38f * ft.scale
+        textSize = 22f * ft.scale
         isFakeBoldText = true
-        setShadowLayer(14f, 0f, 0f, android.graphics.Color.BLACK)
+        setShadowLayer(8f, 0f, 0f, android.graphics.Color.BLACK)
       }
       drawText(ft.text, ft.x, ft.y, paint)
     }
@@ -878,6 +934,7 @@ fun InGameHud(
   scoreSurgeTimer: Float,
   milestoneText: String?,
   milestoneAlpha: Float,
+  dailyModifier: com.example.game.DailyModifier? = null,
   modifier: Modifier = Modifier
 ) {
   Box(
@@ -919,6 +976,23 @@ fun InGameHud(
               fontFamily = FontFamily.Monospace
             )
           }
+
+          if (dailyModifier != null) {
+            Box(
+              modifier = Modifier
+                .background(NeonAmber.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                .border(1.dp, NeonAmber, RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+              Text(
+                text = "${dailyModifier.icon} ${dailyModifier.displayName.uppercase()}",
+                color = NeonAmber,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+              )
+            }
+          }
         }
       }
 
@@ -943,16 +1017,37 @@ fun InGameHud(
             )
             .padding(horizontal = 14.dp, vertical = 6.dp)
         ) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            if (multiplier > 1) {
-              Text("🔥 ", fontSize = 14.sp)
-            }
-            Text(
-              text = "${multiplier}X STREAK",
-              color = if (multiplier > 1) Color.Black else TextSecondary,
-              fontSize = 15.sp,
-              fontWeight = FontWeight.ExtraBold,
-              fontFamily = FontFamily.Monospace
+          Text(
+            text = "${multiplier}X STREAK",
+            color = if (multiplier > 1) Color.Black else TextSecondary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            fontFamily = FontFamily.Monospace
+          )
+        }
+
+        // Combo Timer Bar
+        if (engine.comboTimerFraction > 0f) {
+          Spacer(modifier = Modifier.height(4.dp))
+          Box(
+            modifier = Modifier
+              .width(120.dp)
+              .height(4.dp)
+              .background(CyberSurfaceVariant, RoundedCornerShape(2.dp))
+          ) {
+            Box(
+              modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(engine.comboTimerFraction)
+                .background(
+                  brush = Brush.horizontalGradient(
+                    listOf(
+                      if (engine.comboTimerFraction < 0.3f) NeonAmber else NeonCyan,
+                      if (engine.comboTimerFraction < 0.3f) NeonAmber.copy(alpha = 0.5f) else NeonMagenta
+                    )
+                  ),
+                  shape = RoundedCornerShape(2.dp)
+                )
             )
           }
         }
@@ -960,7 +1055,7 @@ fun InGameHud(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-          text = "⚡ $nearMisses NEAR-MISSES",
+          text = "$nearMisses NEAR-MISSES",
           color = NeonCyan,
           fontSize = 12.sp,
           fontWeight = FontWeight.Bold,
@@ -969,12 +1064,12 @@ fun InGameHud(
       }
     }
 
-    // Active Power-ups Bar (Below Top Row)
+    // Active Power-ups Bar (Top status row)
     Row(
       modifier = Modifier
         .align(Alignment.TopCenter)
-        .padding(top = 65.dp),
-      horizontalArrangement = Arrangement.spacedBy(10.dp)
+        .padding(top = 10.dp),
+      horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
       if (hasShield) {
         PowerUpStatusPill(
@@ -993,29 +1088,31 @@ fun InGameHud(
       if (scoreSurgeTimer > 0f) {
         PowerUpStatusPill(
           icon = Icons.Default.ElectricBolt,
-          label = "SURGE 2X ${"%.1f".format(scoreSurgeTimer)}s",
+          label = "2X ${"%.1f".format(scoreSurgeTimer)}s",
           color = NeonMagenta
         )
       }
     }
 
-    // Milestone Celebration Banner
+    // Milestone Celebration Banner — placed along bottom edge to avoid blocking oncoming obstacles
     if (milestoneText != null && milestoneAlpha > 0f) {
       Box(
         modifier = Modifier
-          .align(Alignment.Center)
+          .align(Alignment.BottomCenter)
+          .navigationBarsPadding()
+          .padding(bottom = 36.dp)
           .alpha(milestoneAlpha)
           .background(
             brush = Brush.horizontalGradient(listOf(NeonMagenta, NeonAmber, NeonCyan)),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(8.dp)
           )
-          .border(2.dp, Color.White, RoundedCornerShape(12.dp))
-          .padding(horizontal = 24.dp, vertical = 14.dp)
+          .border(1.dp, Color.White, RoundedCornerShape(8.dp))
+          .padding(horizontal = 14.dp, vertical = 6.dp)
       ) {
         Text(
           text = milestoneText,
           color = Color.Black,
-          fontSize = 18.sp,
+          fontSize = 12.sp,
           fontWeight = FontWeight.Black,
           fontFamily = FontFamily.Monospace,
           textAlign = TextAlign.Center
@@ -1046,22 +1143,22 @@ fun PowerUpStatusPill(
 ) {
   Row(
     modifier = Modifier
-      .background(color.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-      .border(1.dp, color, RoundedCornerShape(12.dp))
-      .padding(horizontal = 10.dp, vertical = 4.dp),
+      .background(color.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+      .border(1.dp, color, RoundedCornerShape(8.dp))
+      .padding(horizontal = 7.dp, vertical = 3.dp),
     verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(4.dp)
+    horizontalArrangement = Arrangement.spacedBy(3.dp)
   ) {
     Icon(
       imageVector = icon,
       contentDescription = label,
       tint = color,
-      modifier = Modifier.size(14.dp)
+      modifier = Modifier.size(11.dp)
     )
     Text(
       text = label,
       color = color,
-      fontSize = 11.sp,
+      fontSize = 10.sp,
       fontWeight = FontWeight.Bold,
       fontFamily = FontFamily.Monospace
     )
@@ -1081,10 +1178,15 @@ fun AttractScreenOverlay(
   isMusic: Boolean,
   isHaptics: Boolean,
   pulseScale: Float,
+  dailyChallenge: com.example.game.DailyChallenge,
+  onPlayDailyChallenge: () -> Unit,
   onToggleSound: () -> Unit,
   onToggleMusic: () -> Unit,
   onToggleHaptics: () -> Unit,
   onShowLeaderboard: () -> Unit,
+  onShowAchievements: () -> Unit,
+  unlockedCount: Int,
+  totalCount: Int,
   modifier: Modifier = Modifier
 ) {
   Box(
@@ -1145,21 +1247,37 @@ fun AttractScreenOverlay(
         }
       }
 
-      IconButton(
-        onClick = onShowLeaderboard,
-        modifier = Modifier
-          .size(44.dp)
-          .background(CyberSurface, CircleShape)
-          .border(1.dp, NeonCyan, CircleShape)
-          .testTag("open_leaderboard_button")
-      ) {
-        Icon(
-          imageVector = Icons.Default.Leaderboard,
-          contentDescription = "Leaderboard",
-          tint = NeonCyan
-        )
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        IconButton(
+          onClick = onShowAchievements,
+          modifier = Modifier
+            .size(44.dp)
+            .background(CyberSurface, CircleShape)
+            .border(1.dp, NeonAmber, CircleShape)
+            .testTag("open_achievements_button")
+        ) {
+          Icon(
+            imageVector = Icons.Default.ElectricBolt,
+            contentDescription = "Achievements",
+            tint = NeonAmber
+          )
+        }
+
+        IconButton(
+          onClick = onShowLeaderboard,
+          modifier = Modifier
+            .size(44.dp)
+            .background(CyberSurface, CircleShape)
+            .border(1.dp, NeonCyan, CircleShape)
+            .testTag("open_leaderboard_button")
+        ) {
+          Icon(
+            imageVector = Icons.Default.Leaderboard,
+            contentDescription = "Leaderboard",
+            tint = NeonCyan
+          )
+        }
       }
-    }
 
     // Center Title & High Score
     Column(
@@ -1228,13 +1346,13 @@ fun AttractScreenOverlay(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
           ) {
             Text(
-              text = "🔥 Best Streak: x$bestStreak",
+              text = "Best Streak: x$bestStreak",
               color = TextSecondary,
               fontSize = 12.sp,
               fontFamily = FontFamily.Monospace
             )
             Text(
-              text = "🎮 Runs: $totalRuns",
+              text = "Runs: $totalRuns",
               color = TextSecondary,
               fontSize = 12.sp,
               fontFamily = FontFamily.Monospace
@@ -1243,7 +1361,105 @@ fun AttractScreenOverlay(
         }
       }
 
-      Spacer(modifier = Modifier.height(28.dp))
+      Spacer(modifier = Modifier.height(14.dp))
+
+      // Daily Challenge Card
+      Card(
+        colors = CardDefaults.cardColors(containerColor = CyberSurface.copy(alpha = 0.9f)),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+          .fillMaxWidth()
+          .border(
+            width = 1.dp,
+            brush = Brush.horizontalGradient(listOf(NeonMagenta.copy(alpha = 0.6f), NeonAmber.copy(alpha = 0.6f))),
+            shape = RoundedCornerShape(14.dp)
+          )
+      ) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(14.dp)
+        ) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              Box(
+                modifier = Modifier
+                  .background(NeonMagenta.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                  .padding(horizontal = 6.dp, vertical = 2.dp)
+              ) {
+                Text(
+                  text = "DAILY CHALLENGE",
+                  color = NeonMagenta,
+                  fontSize = 10.sp,
+                  fontWeight = FontWeight.Black,
+                  fontFamily = FontFamily.Monospace,
+                  letterSpacing = 1.sp
+                )
+              }
+              Text(
+                text = dailyChallenge.date,
+                color = TextSecondary,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+              )
+            }
+            if (dailyChallenge.highScore > 0) {
+              Text(
+                text = "BEST: ${dailyChallenge.highScore}",
+                color = NeonAmber,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.height(8.dp))
+
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+          ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+              Text(
+                text = "${dailyChallenge.modifier.icon} ${dailyChallenge.modifier.displayName.uppercase()}",
+                color = TextPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+              )
+              Text(
+                text = dailyChallenge.modifier.description,
+                color = TextSecondary,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
+              )
+            }
+
+            Button(
+              onClick = onPlayDailyChallenge,
+              colors = ButtonDefaults.buttonColors(containerColor = NeonMagenta),
+              shape = RoundedCornerShape(8.dp),
+              contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+              Text(
+                text = "PLAY",
+                color = Color.Black,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace
+              )
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(18.dp))
 
       // Tap to Ride Pulse prompt (visual cue — parent clickable handles tap)
       Box(
@@ -1284,9 +1500,9 @@ fun AttractScreenOverlay(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
       ) {
-        HowToPlayItem(icon = "👆", label = "1-Tap", desc = "Shift Rails")
-        HowToPlayItem(icon = "⚡", label = "Graze", desc = "Near-Miss 50pts")
-        HowToPlayItem(icon = "🛡️", label = "Pickups", desc = "Shields & Surge")
+        HowToPlayItem(icon = "/\\", label = "1-Tap", desc = "Shift Rails")
+        HowToPlayItem(icon = ">>", label = "Graze", desc = "Near-Miss 50pts")
+        HowToPlayItem(icon = "+", label = "Pickups", desc = "Shields & Surge")
       }
     }
   }
@@ -1325,6 +1541,8 @@ fun GameOverScoreCard(
   maxStreak: Int,
   distance: Int,
   phase: GamePhase,
+  isDailyChallenge: Boolean = false,
+  dailyModifier: com.example.game.DailyModifier? = null,
   onRetry: () -> Unit,
   onShare: () -> Unit,
   onShowLeaderboard: () -> Unit,
@@ -1360,13 +1578,24 @@ fun GameOverScoreCard(
       ) {
         // Header
         Text(
-          text = "PULSE TERMINATED",
-          color = NeonRed,
+          text = if (isDailyChallenge) "DAILY CHALLENGE COMPLETED" else "PULSE TERMINATED",
+          color = if (isDailyChallenge) NeonMagenta else NeonRed,
           fontSize = 14.sp,
           fontWeight = FontWeight.Black,
           fontFamily = FontFamily.Monospace,
           letterSpacing = 2.sp
         )
+
+        if (isDailyChallenge && dailyModifier != null) {
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "MODIFIER: ${dailyModifier.icon} ${dailyModifier.displayName.uppercase()}",
+            color = NeonAmber,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+          )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -1394,7 +1623,7 @@ fun GameOverScoreCard(
               .padding(horizontal = 14.dp, vertical = 4.dp)
           ) {
             Text(
-              text = "🏆 NEW HIGH SCORE!",
+              text = "NEW HIGH SCORE",
               color = Color.Black,
               fontSize = 12.sp,
               fontWeight = FontWeight.Black,
@@ -1463,11 +1692,12 @@ fun GameOverScoreCard(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-              text = "RETRY",
+              text = if (isDailyChallenge) "RETRY DAILY" else "RETRY",
               color = Color.Black,
               fontSize = 15.sp,
               fontWeight = FontWeight.Black,
-              fontFamily = FontFamily.Monospace
+              fontFamily = FontFamily.Monospace,
+              letterSpacing = 1.sp
             )
           }
 
@@ -1615,7 +1845,7 @@ fun LeaderboardDialog(
             fontFamily = FontFamily.Monospace
           )
           Text(
-            text = "⚡ Near-Misses: $totalNearMisses",
+            text = "Near-Misses: $totalNearMisses",
             color = NeonAmber,
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace
@@ -1683,7 +1913,7 @@ fun LeaderboardDialog(
                       fontFamily = FontFamily.Monospace
                     )
                     Text(
-                      text = "Streak x${run.maxStreak} • ⚡ ${run.nearMissCount}",
+                      text = "Streak x${run.maxStreak} | ${run.nearMissCount} NM",
                       color = TextMuted,
                       fontSize = 10.sp,
                       fontFamily = FontFamily.Monospace
@@ -1703,6 +1933,256 @@ fun LeaderboardDialog(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
+
+        Button(
+          onClick = onDismiss,
+          colors = ButtonDefaults.buttonColors(containerColor = CyberSurfaceVariant),
+          shape = RoundedCornerShape(10.dp),
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Text(
+            text = "CLOSE",
+            color = TextPrimary,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+          )
+        }
+      }
+    }
+  }
+}
+
+// ==========================================
+// ACHIEVEMENT UNLOCK BANNER
+// ==========================================
+
+@Composable
+fun AchievementUnlockedBanner(
+  achievement: com.example.game.Achievement,
+  onDismiss: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  LaunchedEffect(achievement) {
+    kotlinx.coroutines.delay(3000L)
+    onDismiss()
+  }
+
+  Box(
+    modifier = modifier
+      .fillMaxWidth()
+      .statusBarsPadding()
+      .padding(horizontal = 16.dp, vertical = 6.dp),
+    contentAlignment = Alignment.TopCenter
+  ) {
+    Card(
+      colors = CardDefaults.cardColors(containerColor = CyberSurface),
+      shape = RoundedCornerShape(10.dp),
+      modifier = Modifier
+        .widthIn(max = 340.dp)
+        .border(
+          width = 1.dp,
+          brush = Brush.horizontalGradient(listOf(NeonAmber, NeonCyan)),
+          shape = RoundedCornerShape(10.dp)
+        )
+    ) {
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        Box(
+          modifier = Modifier
+            .size(32.dp)
+            .background(
+              brush = Brush.linearGradient(listOf(NeonAmber, NeonCyan)),
+              shape = CircleShape
+            ),
+          contentAlignment = Alignment.Center
+        ) {
+          Text(
+            text = achievement.icon,
+            color = Color.Black,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace
+          )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "UNLOCKED: ${achievement.title.uppercase()}",
+            color = NeonAmber,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+          )
+          Text(
+            text = achievement.description,
+            color = TextSecondary,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace
+          )
+        }
+      }
+    }
+  }
+}
+
+// ==========================================
+// ACHIEVEMENT GALLERY DIALOG
+// ==========================================
+
+@Composable
+fun AchievementGalleryDialog(
+  unlockedAchievements: Set<com.example.game.Achievement>,
+  onDismiss: () -> Unit
+) {
+  Box(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(Color.Black.copy(alpha = 0.85f))
+      .statusBarsPadding()
+      .navigationBarsPadding()
+      .padding(16.dp),
+    contentAlignment = Alignment.Center
+  ) {
+    Card(
+      colors = CardDefaults.cardColors(containerColor = CyberSurface),
+      shape = RoundedCornerShape(16.dp),
+      modifier = Modifier
+        .fillMaxWidth()
+        .fillMaxHeight(0.85f)
+        .border(
+          width = 2.dp,
+          brush = Brush.linearGradient(listOf(NeonAmber, NeonCyan)),
+          shape = RoundedCornerShape(16.dp)
+        )
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(20.dp)
+      ) {
+        // Header
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column {
+            Text(
+              text = "ACHIEVEMENTS",
+              color = TextPrimary,
+              fontSize = 18.sp,
+              fontWeight = FontWeight.Black,
+              fontFamily = FontFamily.Monospace,
+              letterSpacing = 2.sp
+            )
+            Text(
+              text = "${unlockedAchievements.size} / ${com.example.game.Achievement.entries.size} UNLOCKED",
+              color = NeonCyan,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              fontFamily = FontFamily.Monospace
+            )
+          }
+          IconButton(onClick = onDismiss) {
+            Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Close",
+              tint = TextSecondary
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Achievement Grid
+        androidx.compose.foundation.lazy.LazyColumn(
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+          modifier = Modifier.weight(1f)
+        ) {
+          items(com.example.game.Achievement.entries.size) { index ->
+            val achievement = com.example.game.Achievement.entries[index]
+            val isUnlocked = achievement in unlockedAchievements
+
+            Card(
+              colors = CardDefaults.cardColors(
+                containerColor = if (isUnlocked) CyberSurfaceVariant else CyberBackground
+              ),
+              shape = RoundedCornerShape(10.dp),
+              modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                  if (isUnlocked) Modifier.border(
+                    1.dp,
+                    NeonCyan.copy(alpha = 0.4f),
+                    RoundedCornerShape(10.dp)
+                  ) else Modifier
+                )
+            ) {
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(36.dp)
+                    .background(
+                      color = if (isUnlocked) NeonCyan.copy(alpha = 0.2f) else CyberSurfaceVariant,
+                      shape = CircleShape
+                    )
+                    .then(
+                      if (isUnlocked) Modifier.border(1.dp, NeonCyan, CircleShape)
+                      else Modifier
+                    ),
+                  contentAlignment = Alignment.Center
+                ) {
+                  Text(
+                    text = if (isUnlocked) achievement.icon else "?",
+                    color = if (isUnlocked) NeonCyan else TextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                  )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    text = achievement.title.uppercase(),
+                    color = if (isUnlocked) TextPrimary else TextMuted,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                  )
+                  Text(
+                    text = achievement.description,
+                    color = if (isUnlocked) TextSecondary else TextMuted.copy(alpha = 0.5f),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                  )
+                }
+
+                if (isUnlocked) {
+                  Text(
+                    text = "DONE",
+                    color = NeonGreen,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                  )
+                }
+              }
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         Button(
           onClick = onDismiss,
