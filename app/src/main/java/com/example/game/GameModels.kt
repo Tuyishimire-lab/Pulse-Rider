@@ -12,6 +12,7 @@ import com.example.ui.theme.NeonRed
 enum class GameScreenState {
   ATTRACT,
   PLAYING,
+  PAUSED,
   GAME_OVER
 }
 

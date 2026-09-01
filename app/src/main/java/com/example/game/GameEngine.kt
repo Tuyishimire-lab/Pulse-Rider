@@ -200,6 +200,38 @@ class GameEngine(
     audio?.startRhythm(1.0f)
   }
 
+  fun pauseGame() {
+    if (state == GameScreenState.PLAYING) {
+      state = GameScreenState.PAUSED
+      audio?.stopRhythm()
+    }
+  }
+
+  fun resumeGame() {
+    if (state == GameScreenState.PAUSED) {
+      state = GameScreenState.PLAYING
+      audio?.startRhythm(currentSpeedMultiplier)
+    }
+  }
+
+  fun togglePause() {
+    if (state == GameScreenState.PLAYING) {
+      pauseGame()
+    } else if (state == GameScreenState.PAUSED) {
+      resumeGame()
+    }
+  }
+
+  fun quitToMenu() {
+    audio?.stopRhythm()
+    state = GameScreenState.ATTRACT
+    playerTrail.clear()
+    particles.clear()
+    floatingTexts.clear()
+    obstacles.clear()
+    powerUps.clear()
+  }
+
   fun onScreenTapped() {
     when (state) {
       GameScreenState.ATTRACT -> {
@@ -207,6 +239,9 @@ class GameEngine(
       }
       GameScreenState.PLAYING -> {
         toggleLane(1.0f)
+      }
+      GameScreenState.PAUSED -> {
+        // Paused state handled by pause overlay UI
       }
       GameScreenState.GAME_OVER -> {
         if (System.currentTimeMillis() - gameOverTimestamp >= gameOverCooldownMs) {
@@ -262,7 +297,7 @@ class GameEngine(
   }
 
   fun update(realDeltaTime: Float) {
-    if (realDeltaTime <= 0f) return
+    if (realDeltaTime <= 0f || state == GameScreenState.PAUSED) return
 
     // Cap delta time to prevent spiraling after pauses
     val dtClamped = realDeltaTime.coerceIn(0.001f, 0.05f)
