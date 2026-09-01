@@ -1,22 +1,17 @@
 package com.example.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -127,6 +122,7 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.compose.ui.platform.LocalView
 import kotlin.random.Random
 
 @Composable
@@ -135,6 +131,7 @@ fun PulseRiderGameScreen(
   modifier: Modifier = Modifier
 ) {
   val context = LocalContext.current
+  val rootView = LocalView.current
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val topRuns by viewModel.topRuns.collectAsStateWithLifecycle()
   val totalRunsCount by viewModel.totalRunsCount.collectAsStateWithLifecycle()
@@ -157,15 +154,6 @@ fun PulseRiderGameScreen(
       repeatMode = RepeatMode.Reverse
     ),
     label = "pulseScale"
-  )
-  val gridScrollOffset by infiniteTransition.animateFloat(
-    initialValue = 0f,
-    targetValue = 100f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(1200, easing = LinearEasing),
-      repeatMode = RepeatMode.Restart
-    ),
-    label = "gridScroll"
   )
 
   // 60 FPS Continuous Game Loop
@@ -198,11 +186,23 @@ fun PulseRiderGameScreen(
     modifier = modifier
       .fillMaxSize()
       .background(CyberBackground)
-      .clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = null
-      ) {
-        engine.onScreenTapped()
+      .pointerInput(Unit) {
+        detectTapGestures {
+          engine.onScreenTapped()
+        }
+      }
+      .pointerInput(Unit) {
+        detectVerticalDragGestures(
+          onDragEnd = {},
+          onVerticalDrag = { change, dragAmount ->
+            // Accumulate drag; fire lane switch on sufficient vertical movement
+            val velocity = dragAmount / 0.016f // approximate velocity from per-frame delta
+            if (kotlin.math.abs(dragAmount) > 8f) {
+              engine.onSwipeGesture(velocity, dragAmount)
+              change.consume()
+            }
+          }
+        )
       }
       .testTag("game_tap_area")
   ) {
@@ -230,7 +230,7 @@ fun PulseRiderGameScreen(
           width = size.width,
           height = size.height,
           phase = engine.currentPhase,
-          scrollOffset = gridScrollOffset,
+          scrollOffset = engine.gridScrollPhase,
           speedIntensity = engine.speedLinesIntensity
         )
 
@@ -248,7 +248,8 @@ fun PulseRiderGameScreen(
           width = size.width,
           height = size.height,
           intensity = engine.speedLinesIntensity,
-          phase = engine.currentPhase
+          phase = engine.currentPhase,
+          frameTick = frameTick
         )
 
         // 4. Power-Ups
@@ -346,7 +347,6 @@ fun PulseRiderGameScreen(
         onToggleMusic = { viewModel.toggleMusicSynth() },
         onToggleHaptics = { viewModel.toggleHaptics() },
         onShowLeaderboard = { viewModel.setShowLeaderboard(true) },
-        onStart = { engine.startNewGame() },
         modifier = Modifier.fillMaxSize()
       )
     }
@@ -368,7 +368,8 @@ fun PulseRiderGameScreen(
             score = engine.score.toInt(),
             streak = engine.maxStreak,
             nearMisses = engine.nearMissCount,
-            phaseName = engine.currentPhase.name
+            phaseName = engine.currentPhase.name,
+            cardView = rootView
           )
         },
         onShowLeaderboard = { viewModel.setShowLeaderboard(true) },
@@ -541,7 +542,8 @@ private fun DrawScope.drawSpeedLines(
   width: Float,
   height: Float,
   intensity: Float,
-  phase: GamePhase
+  phase: GamePhase,
+  frameTick: Long
 ) {
   if (intensity <= 0.2f) return
   val numLines = (intensity * 14).toInt()
@@ -550,7 +552,10 @@ private fun DrawScope.drawSpeedLines(
     val seed = (i * 137)
     val y = (seed % height.toInt()).toFloat()
     val lineLen = (Random(seed).nextFloat() * 180f + 100f) * intensity
-    val x = (Random(seed + 1).nextFloat() * (width - lineLen))
+    val baseX = Random(seed + 1).nextFloat() * (width - lineLen)
+    // Animate lines scrolling left based on frameTick
+    val scrollOffset = (frameTick * (3 + i % 5)) % width.toLong()
+    val x = (baseX - scrollOffset.toFloat()).let { if (it < -lineLen) it + width + lineLen else it }
     drawLine(
       color = phase.primaryColor.copy(alpha = 0.25f * intensity),
       start = Offset(x, y),
@@ -1080,7 +1085,6 @@ fun AttractScreenOverlay(
   onToggleMusic: () -> Unit,
   onToggleHaptics: () -> Unit,
   onShowLeaderboard: () -> Unit,
-  onStart: () -> Unit,
   modifier: Modifier = Modifier
 ) {
   Box(
@@ -1241,7 +1245,7 @@ fun AttractScreenOverlay(
 
       Spacer(modifier = Modifier.height(28.dp))
 
-      // Tap to Ride Pulse prompt button
+      // Tap to Ride Pulse prompt (visual cue — parent clickable handles tap)
       Box(
         modifier = Modifier
           .scale(pulseScale)
@@ -1250,7 +1254,6 @@ fun AttractScreenOverlay(
             shape = RoundedCornerShape(30.dp)
           )
           .border(2.dp, Color.White, RoundedCornerShape(30.dp))
-          .clickable { onStart() }
           .padding(horizontal = 36.dp, vertical = 16.dp)
           .testTag("start_game_button")
       ) {
@@ -1331,6 +1334,10 @@ fun GameOverScoreCard(
     modifier = modifier
       .fillMaxSize()
       .background(Color.Black.copy(alpha = 0.75f))
+      // Consume taps on the overlay so they don't bleed through to restart
+      .pointerInput(Unit) {
+        detectTapGestures { /* consumed — use RETRY button to restart */ }
+      }
       .statusBarsPadding()
       .navigationBarsPadding()
       .padding(20.dp),
@@ -1367,14 +1374,21 @@ fun GameOverScoreCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Final Score
+        // Final Score with neon glow
         Text(
           text = "$score",
           color = TextPrimary,
           fontSize = 48.sp,
           fontWeight = FontWeight.Black,
           fontFamily = FontFamily.Monospace,
-          letterSpacing = 2.sp
+          letterSpacing = 2.sp,
+          style = androidx.compose.ui.text.TextStyle(
+            shadow = androidx.compose.ui.graphics.Shadow(
+              color = NeonCyan,
+              offset = Offset.Zero,
+              blurRadius = 28f
+            )
+          )
         )
 
         if (isNewBest) {

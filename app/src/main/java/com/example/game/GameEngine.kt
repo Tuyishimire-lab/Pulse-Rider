@@ -37,6 +37,7 @@ class GameEngine(
   var playerTargetLane: Lane = Lane.TOP
   var playerRadius: Float = 36f
   private var playerVelocityY: Float = 0f
+  private var gestureBoost: Float = 1.0f
 
   // Active Power-ups
   var hasShield: Boolean = false
@@ -66,6 +67,10 @@ class GameEngine(
   var chromaticFlash: Float = 0f
   var speedLinesIntensity: Float = 0f
 
+  // Speed-driven visual state
+  var currentSpeedMultiplier: Float = 1.0f
+  var gridScrollPhase: Float = 0f
+
   // Spawning controls
   private var nextObstacleSpawnX: Float = 0f
   private var nextPowerUpSpawnDistance: Float = 400f
@@ -75,6 +80,10 @@ class GameEngine(
   var currentMilestoneText: String? = null
   var milestoneBannerAlpha: Float = 0f
   private val reachedMilestones = mutableSetOf<Int>()
+
+  // Game-over restart cooldown (prevents accidental restarts)
+  private var gameOverTimestamp: Long = 0L
+  private val gameOverCooldownMs: Long = 600L
 
   fun updateDimensions(width: Float, height: Float) {
     screenWidth = width
@@ -114,6 +123,10 @@ class GameEngine(
     timeScale = 1.0f
     screenShakeTrauma = 0f
     chromaticFlash = 0f
+    gestureBoost = 1.0f
+    gridScrollPhase = 0f
+    currentSpeedMultiplier = 1.0f
+    gameOverTimestamp = 0L
 
     playerTrail.clear()
     particles.clear()
@@ -137,16 +150,50 @@ class GameEngine(
         startNewGame()
       }
       GameScreenState.PLAYING -> {
-        toggleLane()
+        toggleLane(1.0f)
       }
       GameScreenState.GAME_OVER -> {
-        startNewGame()
+        if (System.currentTimeMillis() - gameOverTimestamp >= gameOverCooldownMs) {
+          startNewGame()
+        }
       }
     }
   }
 
-  private fun toggleLane() {
+  /**
+   * Directional swipe gesture: moves to the lane matching swipe direction.
+   * @param velocityY vertical velocity of the swipe (positive = downward)
+   * @param swipeDistanceY total vertical distance of the swipe
+   */
+  fun onSwipeGesture(velocityY: Float, swipeDistanceY: Float) {
+    if (state != GameScreenState.PLAYING) {
+      if (state == GameScreenState.GAME_OVER &&
+          System.currentTimeMillis() - gameOverTimestamp < gameOverCooldownMs) {
+        return
+      }
+      onScreenTapped()
+      return
+    }
+
+    val targetLane = if (swipeDistanceY > 0) Lane.BOTTOM else Lane.TOP
+
+    // Only switch if we're not already on the target lane
+    if (targetLane == playerTargetLane) return
+
+    // Gesture speed influences transition snappiness (normalized to 0.5..2.5 range)
+    val speed = kotlin.math.abs(velocityY).coerceIn(200f, 4000f)
+    val normalizedBoost = 0.5f + (speed - 200f) / (4000f - 200f) * 2.0f
+
+    // Give the player an initial velocity kick in the swipe direction
+    val kickDirection = if (swipeDistanceY > 0) 1f else -1f
+    playerVelocityY += kickDirection * speed * 0.4f
+
+    toggleLane(normalizedBoost)
+  }
+
+  private fun toggleLane(boost: Float = 1.0f) {
     playerTargetLane = playerTargetLane.toggle()
+    gestureBoost = boost
     audio?.playPhaseShift(playerTargetLane == Lane.TOP)
     haptics?.pulseShift()
 
@@ -219,6 +266,7 @@ class GameEngine(
 
     val baseSpeed = currentPhase.baseSpeed
     val speedMultiplier = 1.0f + (scoreInt / 5000f).coerceAtMost(1.0f)
+    currentSpeedMultiplier = speedMultiplier
     val effectiveSpeed = baseSpeed * speedMultiplier * (if (slowMoTimer > 0f) 0.65f else 1.0f)
 
     audio?.updateSpeed(speedMultiplier)
@@ -234,16 +282,24 @@ class GameEngine(
     // Check milestones (500, 1000, 2500, 5000, 7500, 10000)
     checkMilestones(scoreInt)
 
-    // Smoothly interpolate player Y to target rail with snappy cyber physics
+    // Smoothly interpolate player Y to target rail with gesture-responsive spring
     val targetY = if (playerTargetLane == Lane.TOP) topRailY else bottomRailY
-    val springStiffness = 32f
-    val springDamping = 0.82f
+    val springStiffness = 18f * gestureBoost.coerceIn(0.8f, 2.5f)
+    val springDamping = 8.5f * gestureBoost.coerceIn(0.9f, 1.8f)
     val displacement = targetY - playerY
-    playerVelocityY = (playerVelocityY + displacement * springStiffness) * springDamping
+    val springForce = displacement * springStiffness
+    val dampingForce = playerVelocityY * springDamping
+    playerVelocityY += (springForce - dampingForce) * gameDt
     playerY += playerVelocityY * gameDt
+
+    // Decay gesture boost back to neutral
+    gestureBoost = (gestureBoost + (1.0f - gestureBoost) * 4f * gameDt).coerceIn(0.5f, 2.5f)
 
     // Update speed lines intensity
     speedLinesIntensity = ((effectiveSpeed - 400f) / 700f).coerceIn(0.2f, 1.0f)
+
+    // Update grid scroll phase driven by game speed
+    gridScrollPhase += effectiveSpeed * 0.002f * gameDt
 
     // Record trail history
     recordPlayerTrail()
@@ -258,6 +314,24 @@ class GameEngine(
 
     // Ambient cyber particles
     spawnAmbientParticles()
+
+    // Speed-based trail sparks at high speeds
+    if (speedMultiplier > 1.2f && Random.nextFloat() < (speedMultiplier - 1.0f) * 0.5f) {
+      particles.add(
+        Particle(
+          x = playerX - 15f - Random.nextFloat() * 20f,
+          y = playerY + (Random.nextFloat() - 0.5f) * 16f,
+          vx = -Random.nextFloat() * 250f - 100f,
+          vy = (Random.nextFloat() - 0.5f) * 60f,
+          radius = Random.nextFloat() * 4f + 1.5f,
+          alpha = 0.9f,
+          maxLife = 0.25f,
+          currentLife = 0.25f,
+          color = currentPhase.primaryColor,
+          type = ParticleType.TRAIL_ORB
+        )
+      )
+    }
   }
 
   private fun updateAttractState(gameDt: Float) {
@@ -282,8 +356,9 @@ class GameEngine(
       )
     )
 
-    // Keep trail length constrained
-    if (playerTrail.size > 28) {
+    // Keep trail length constrained — scales with speed
+    val maxTrailLength = (18 + (currentSpeedMultiplier - 1.0f) * 22f).toInt().coerceIn(18, 40)
+    while (playerTrail.size > maxTrailLength) {
       playerTrail.removeAt(playerTrail.lastIndex)
     }
   }
@@ -421,10 +496,13 @@ class GameEngine(
 
         // Distance from player to the obstacle bounding box
         val distToCenter = sqrt((playerX - obs.x) * (playerX - obs.x) + (playerY - obstacleRailY) * (playerY - obstacleRailY))
-        val isTightDodge = distToCenter < (railSpacing * 1.3f)
+        val isTightDodge = distToCenter < (railSpacing * 0.75f)
 
         if (isTightDodge && obs.type != ObstacleType.SHIMMER_GHOST) {
           triggerNearMiss(obs.x, obstacleRailY)
+        } else if (obs.type != ObstacleType.SHIMMER_GHOST) {
+          // Streak broken — obstacle passed without a near-miss graze
+          currentMultiplier = 1
         }
       }
 
@@ -584,6 +662,7 @@ class GameEngine(
 
   private fun triggerGameOver() {
     state = GameScreenState.GAME_OVER
+    gameOverTimestamp = System.currentTimeMillis()
     screenShakeTrauma = 1.0f
     chromaticFlash = 1.0f
 

@@ -116,7 +116,7 @@ class PulseRiderViewModel(application: Application) : AndroidViewModel(applicati
     }
   }
 
-  fun shareScoreCard(context: Context, score: Int, streak: Int, nearMisses: Int, phaseName: String) {
+  fun shareScoreCard(context: Context, score: Int, streak: Int, nearMisses: Int, phaseName: String, cardView: android.view.View? = null) {
     val shareText = """
       ⚡ PULSE RIDER RUN ⚡
       ━━━━━━━━━━━━━━━━━━━━
@@ -128,9 +128,56 @@ class PulseRiderViewModel(application: Application) : AndroidViewModel(applicati
       Can you ride the pulse further? #PulseRider #Cyberpunk
     """.trimIndent()
 
+    viewModelScope.launch {
+      try {
+        if (cardView != null && cardView.width > 0 && cardView.height > 0) {
+          // Capture the score card as a bitmap
+          val bitmap = android.graphics.Bitmap.createBitmap(
+            cardView.width, cardView.height,
+            android.graphics.Bitmap.Config.ARGB_8888
+          )
+          val canvas = android.graphics.Canvas(bitmap)
+          cardView.draw(canvas)
+
+          // Save to cache dir for FileProvider
+          val imagesDir = java.io.File(context.cacheDir, "shared_images")
+          imagesDir.mkdirs()
+          val imageFile = java.io.File(imagesDir, "pulse_rider_score.png")
+          java.io.FileOutputStream(imageFile).use { out ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+          }
+          bitmap.recycle()
+
+          val imageUri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            imageFile
+          )
+
+          val sendIntent = Intent().apply {
+            action = Intent.ACTION_SEND
+            putExtra(Intent.EXTRA_TEXT, shareText)
+            putExtra(Intent.EXTRA_STREAM, imageUri)
+            type = "image/png"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          }
+          val shareIntent = Intent.createChooser(sendIntent, "Share Pulse Rider Run")
+          context.startActivity(shareIntent)
+        } else {
+          // Fallback to text-only sharing
+          shareTextOnly(context, shareText)
+        }
+      } catch (e: Exception) {
+        // Fallback to text-only on any error
+        shareTextOnly(context, shareText)
+      }
+    }
+  }
+
+  private fun shareTextOnly(context: Context, text: String) {
     val sendIntent = Intent().apply {
       action = Intent.ACTION_SEND
-      putExtra(Intent.EXTRA_TEXT, shareText)
+      putExtra(Intent.EXTRA_TEXT, text)
       type = "text/plain"
     }
     val shareIntent = Intent.createChooser(sendIntent, "Share Pulse Rider Run")
